@@ -1,56 +1,60 @@
-from __future__ import print_function
+import json
+import pickle
 
-import os.path
-
-from google.auth.transport.requests import Request
+import requests
 from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
+from google_auth_oauthlib.flow import Flow
+from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
-from googleapiclient.errors import HttpError
 
-# If modifying these scopes, delete the file token.json.
+# set up the Google API client
+CLIENT_SECRETS_FILE = 'web_credentials.json'
 SCOPES = ['https://mail.google.com/']
+API_VERSION = 'v1'
+SERVICE_NAME = 'gmail'
+state = "state"
+# create a Flow object to handle the OAuth 2.0 flow
+flow = Flow.from_client_secrets_file(
+    CLIENT_SECRETS_FILE,
+    scopes=SCOPES,
+    redirect_uri='https://app.buissmaster.com',
+    state="state"
+)
 
+auth_url, _ = flow.authorization_url(prompt='consent')
+print('Please go to this URL and authorize the application: {}'.format(auth_url))
 
-def main():
-    """Shows basic usage of the Gmail API.
-    Lists the user's Gmail labels.
-    """
-    creds = None
-    # The file token.json stores the user's access and refresh tokens, and is
-    # created automatically when the authorization flow completes for the first
-    # time.
-    if os.path.exists('token.json'):
-        creds = Credentials.from_authorized_user_file('token.json', SCOPES)
-    # If there are no (valid) credentials available, let the user log in.
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
-            flow = InstalledAppFlow.from_client_secrets_file(
-                'credentials3.json', SCOPES)
-            creds = flow.run_local_server(port=0)
-        # Save the credentials for the next run
-        with open('token.json', 'w') as token:
-            token.write(creds.to_json())
+response = requests.post(auth_url)
+# # wait for the user to complete the authorization flow and enter the code
+authorization_response = input('Enter the full authorization code: ')
 
-    try:
-        # Call the Gmail API
-        service = build('gmail', 'v1', credentials=creds)
-        results = service.users().labels().list(userId='me').execute()
-        labels = results.get('labels', [])
+# # exchange the authorization code for an access token
+flow.fetch_token(authorization_response=authorization_response)
 
-        if not labels:
-            print('No labels found.')
-            return
-        print('Labels:')
-        for label in labels:
-            print(label['name'])
+# # save the access token to a file or database
+creds = flow.credentials
+# # for example, to save the access token to a file:
+with open('token.pickle', 'wb') as token_file:
+    pickle.dump(creds, token_file)
+    # Load the pickle file
+with open('token.pickle', 'rb') as f:
+    creds = pickle.load(f)
 
-    except HttpError as error:
-        # TODO(developer) - Handle errors from gmail API.
-        print(f'An error occurred: {error}')
-
-
-if __name__ == '__main__':
-    main()
+# Convert the creds object to a dictionary
+creds_dict = {
+    'token': creds.token,
+    'refresh_token': creds.refresh_token,
+    'token_uri': creds.token_uri,
+    'client_id': creds.client_id,
+    'client_secret': creds.client_secret,
+    'scopes': creds.scopes
+}
+creds_json = json.dumps(creds_dict)
+# print(creds_json)
+with open("token.json", "w") as file:
+    file.write(creds_json)
+# # create a Gmail API client with the access token
+if creds and creds.expired and creds.refresh_token:
+    creds.refresh(Request())
+#
+service = build(SERVICE_NAME, API_VERSION, credentials=creds)
